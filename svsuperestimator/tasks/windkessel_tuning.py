@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import sys
+import pdb
 import pickle
 from datetime import datetime
 from multiprocessing import get_context
@@ -37,19 +39,20 @@ class WindkesselTuning(Task):
         "zerod_config_file": None,
         "num_procs": 1,
         "theta_obs": None,
+        "theta_range": None,
         "y_obs": None,
         "num_particles": 100,
         "num_rejuvenation_steps": 2,
         "resampling_threshold": 0.5,
         "noise_factor": 0.05,
+        "forward_model": None,
         **Task.DEFAULTS,
     }
 
-    # _THETA_RANGE = (7.0, 13.0)
-    _THETA_RANGE = np.array([[11.0, 13.0], [-1.0, 4.0]])
-
     def core_run(self) -> None:
         """Core routine of the task."""
+
+        self.theta_range = self.config["theta_range"]
 
         # Load the 0D simulation configuration
         zerod_config_handler = reader.SvZeroDSolverInputHandler.from_file(
@@ -75,7 +78,13 @@ class WindkesselTuning(Task):
         self.database["theta_obs"] = theta_obs.tolist()
 
         # Setup forward model
-        self.forward_model = _Forward_ModelRC(zerod_config_handler)
+        model = self.config["forward_model"]
+        if model == "RC":
+            self.forward_model = _Forward_ModelRC(zerod_config_handler)
+        elif model == "RpRd":
+            self.forward_model = _Forward_ModelRpRd(zerod_config_handler)
+        else:
+            raise NotImplementedError("Unknown forward model " + model)
 
         # Determine target observations through one forward evaluation
         y_obs = np.array(self.config["y_obs"])
@@ -94,7 +103,7 @@ class WindkesselTuning(Task):
             y_obs=y_obs,
             len_theta=len(theta_obs),
             likelihood_std_vector=std_vector,
-            prior_bounds=self._THETA_RANGE,
+            prior_bounds=self.config["theta_range"],
             num_procs=self.config["num_procs"],
             num_particles=self.config["num_particles"],
             resampling_strategy="systematic",
@@ -204,7 +213,7 @@ class WindkesselTuning(Task):
 
             # write 0D results to file
             fn = os.path.join(self.output_folder, "solution_" + name + ".csv")
-            self.forward_model.simulate(fn)
+            self.forward_model.simulate_csv(fn)
 
     def generate_report(self) -> visualizer.Report:
         """Generate the task report."""
@@ -244,10 +253,10 @@ class WindkesselTuning(Task):
         # Format the labels
         outlet_bcs = zerod_config.outlet_boundary_conditions
         bc_names = list(outlet_bcs.keys())
-        theta_names = [rf"$\theta_{i}$" for i in range(len(bc_names))]
+        theta_names = [rf"$\theta_{i}$" for i in range(len(self.theta_range))]
 
         # Create parallel coordinates plot
-        plot_range = [np.min(self._THETA_RANGE[:]), np.max(self._THETA_RANGE[:])]
+        plot_range = [np.min(self.theta_range[:]), np.max(self.theta_range[:])]
         paracoords = visualizer.Plot2D()
         paracoords.add_parallel_coordinates_plots(
             particles.T,
@@ -287,15 +296,15 @@ class WindkesselTuning(Task):
             # Calculate histogram data
             bandwidth = 0.02
             # bins = int(
-            #     (self._THETA_RANGE[i][1] - self._THETA_RANGE[i][0]) / bandwidth
+            #     (self.theta_range[i][1] - self.theta_range[i][0]) / bandwidth
             # )
-            bins = self.config["num_samples"]
+            bins = int(self.config["num_particles"] / 10)
             counts, bin_edges = np.histogram(
                 particles[:, i],
                 bins=bins,
                 weights=weights,
                 density=True,
-                range=self._THETA_RANGE[i],
+                range=self.theta_range[i],
             )
 
             # Create kernel density estimation plot for BC
@@ -303,7 +312,7 @@ class WindkesselTuning(Task):
                 title="Weighted histogram and kernel density estimation",
                 xaxis_title=theta_names[i],
                 yaxis_title="Kernel density",
-                xaxis_range=self._THETA_RANGE[i],
+                xaxis_range=self.theta_range[i],
             )
             distplot.add_bar_trace(
                 x=bin_edges,
@@ -472,9 +481,9 @@ class _Forward_Model:
         for i, bc in enumerate(zerod_config.data["boundary_conditions"]):
             if bc["bc_name"] in self.outlet_bcs:
                 self.outlet_bc_ids.append(i)
-        self.base_config["simulation_parameters"].update(
-            {"output_last_cycle_only": True, "output_interval": 10}
-        )
+        # self.base_config["simulation_parameters"].update(
+        #     {"output_last_cycle_only": True, "output_interval": 10}
+        # )
 
         bc_node_names = zerod_config.get_bc_node_names()
         self.inlet_dof_name = [
@@ -500,16 +509,12 @@ class _Forward_Model:
         """Write configuration to 0D input file"""
         self.based_zerod.to_file(filename)
 
-    def simulate(self, filename: str):
-        """Run forward simulation with saving results to csv"""
+    def simulate_csv(self, filename: str):
+        """Run forward simulation with base configuration and save results to csv"""
         svzerodplus.simulate(self.base_config).to_csv(filename)
 
-    def evaluate(self, sample: np.ndarray) -> np.ndarray:
-        """Objective function for the optimization.
-
-        Evaluates the sum of the offsets for the input output pressure relation
-        for each outlet.
-        """
+    def simulate(self, sample: np.ndarray) -> Solver:
+        """Run forward simulation with sample and return the solver object"""
         config = self.base_config.copy()
 
         # Change boundary conditions (set in derived class)
@@ -519,19 +524,14 @@ class _Forward_Model:
         try:
             solver = Solver(config)
             solver.run()
+            return solver
         except RuntimeError:
             print("WARNING: Forward model evaluation failed.")
-            return np.array([9e99] * (len(self.outlet_dof_names) + 2))
+            return None
 
-        # Extract minimum and maximum inlet pressure for last cardiac cycle
-        p_inlet = solver.get_single_result(self.inlet_dof_name)
-
-        # Extract mean outlet pressure for last cardiac cycle at each BC
-        q_outlet_mean = [
-            solver.get_single_result_avg(dof) for dof in self.outlet_dof_names
-        ]
-
-        return np.array([p_inlet.min(), p_inlet.max(), *q_outlet_mean])
+    def evaluate(self, sample: np.ndarray) -> np.ndarray:
+        """Objective function for the optimization"""
+        raise NotImplementedError
 
     def change_boundary_conditions(self, boundary_conditions, sample):
         """Specify how boundary conditions are set with parameters"""
@@ -548,24 +548,55 @@ class _Forward_ModelRpRd(_Forward_Model):
             bc_values["Rd"] = ki - bc_values["Rp"]
             bc_values["C"] = self._time_constants[i] / bc_values["Rd"]
 
+    def evaluate(self, sample: np.ndarray) -> np.ndarray:
+        """Evaluates the sum of the offsets for the input output pressure relation
+        for each outlet."""
+        solver = self.simulate(sample)
+        if solver is None:
+            return np.array([9e99] * (len(self.outlet_dof_names) + 2))
+
+        # Extract minimum and maximum inlet pressure for last cardiac cycle
+        p_inlet = solver.get_single_result(self.inlet_dof_name)
+
+        # Extract mean outlet pressure for last cardiac cycle at each BC
+        q_outlet_mean = [
+            solver.get_single_result_avg(dof) for dof in self.outlet_dof_names
+        ]
+
+        return np.array([p_inlet.min(), p_inlet.max(), *q_outlet_mean])
+
 
 class _Forward_ModelRC(_Forward_Model):
     def change_boundary_conditions(self, boundary_conditions, sample):
+        assert len(self.outlet_bc_ids) == 1, "only implemented for single RCR boundary condition"
+
         # only modify last boundary condition
         bc_id = self.outlet_bc_ids[-1]
         bc_values = boundary_conditions[bc_id]["bc_values"]
 
-        # # modify ratios of bc values
+        # # Rd / Rp
         # r_ratio = np.exp(sample[0])
+
+        # # Rd * C
         # rc_ratio = np.exp(sample[1])
 
         # # Rp is const
-        bc_values["Rd"] = r_ratio * bc_values["Rp"]
-        bc_values["C"] = rc_ratio / bc_values["Rd"]
-        # bc_values["Rd"] = np.exp(sample[0])
-        # for i, bc_id in enumerate(self.outlet_bc_ids):
-        #     bc_values = boundary_conditions[bc_id]["bc_values"]
-        #     bc_values["C"] *= np.exp(sample[1])
+        # bc_values["Rd"] = r_ratio * bc_values["Rp"]
+        # bc_values["C"] = rc_ratio / bc_values["Rd"]
+
+        bc_values["Rd"] = np.exp(sample[0])
+        bc_values["C"] = np.exp(sample[1])
+
+    def evaluate(self, sample: np.ndarray) -> np.ndarray:
+        """Get the pressure curve at the inlet"""
+        solver = self.simulate(sample)
+        if solver is None:
+            nt = self.base_config["simulation_parameters"]["number_of_time_pts_per_cardiac_cycle"]
+            # it = self.base_config["simulation_parameters"]["output_interval"]
+            n_time = nt# // it
+            return np.array([9e99] * n_time)
+
+        return solver.get_single_result(self.inlet_dof_name)
 
 
 class _SMCRunner:
@@ -575,7 +606,7 @@ class _SMCRunner:
         y_obs: np.ndarray,
         len_theta: int,
         likelihood_std_vector: np.ndarray,
-        prior_bounds: list,
+        prior_bounds: np.ndarray,
         num_particles: int,
         resampling_strategy: str,
         resampling_threshold: float,
@@ -661,3 +692,17 @@ class _SMCRunner:
             all_logpost.append(logpost)
 
         return all_particles, all_weights, all_logpost
+
+class ForkedPdb(pdb.Pdb):
+    """A Pdb subclass that may be used
+    from a forked multiprocessing child.
+
+    Call with ForkedPdb().set_trace()
+    """
+    def interaction(self, *args, **kwargs):
+        _stdin = sys.stdin
+        try:
+            sys.stdin = open('/dev/stdin')
+            pdb.Pdb.interaction(self, *args, **kwargs)
+        finally:
+            sys.stdin = _stdin

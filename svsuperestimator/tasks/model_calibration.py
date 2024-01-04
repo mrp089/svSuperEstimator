@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 import orjson
 import pandas as pd
-import svzerodplus
+import pysvzerod as svzerodplus
 from rich import box
 from rich.table import Table
 from scipy import optimize

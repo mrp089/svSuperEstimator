@@ -6,7 +6,7 @@ import os
 from shutil import copy2, copytree, ignore_patterns
 
 import numpy as np
-import svzerodplus
+import pysvzerod as svzerodplus
 
 from .. import reader, visualizer
 from ..reader import CenterlineHandler, SvZeroDSolverInputHandler

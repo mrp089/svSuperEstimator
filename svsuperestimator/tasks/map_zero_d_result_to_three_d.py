@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import svzerodplus
+import pysvzerod as svzerodplus
 import vtk
 from rich.progress import Progress
 from scipy.interpolate import interp1d

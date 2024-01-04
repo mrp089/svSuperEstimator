@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import svzerodplus
+import pysvzerod as svzerodplus
 from rich.progress import BarColumn, Progress
 
 from .. import reader, visualizer

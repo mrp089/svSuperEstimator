@@ -13,12 +13,12 @@ import numpy as np
 import orjson
 import pandas as pd
 import particles
-import svzerodplus
+import pysvzerod as svzerodplus
 from particles import distributions as dists
 from particles import smc_samplers as ssp
 from rich.progress import BarColumn, Progress
 from scipy import stats
-from svzerodplus import Solver
+from pysvzerod import Solver
 
 from .. import reader, visualizer
 from ..reader import utils as readutils
@@ -289,16 +289,32 @@ class WindkesselTuning(Task):
             "dash": "dash",
         }
 
+        # Calculate histogram data
+        bandwidth = 0.02
+        bins = int(self.config["num_particles"] / 10)
+
         # Create distribition plots for all boundary conditions
-        for i in range(particles.shape[1]):
+        n_dim = particles.shape[1]
+        if n_dim == 2:
+            report.add(f"Add bivariate results")
+            
+            import seaborn as sns
+            import matplotlib.pyplot as plt
+
+            results = {"theta_1": particles[:, 0], "theta_2": particles[:, 1]}
+            data = pd.DataFrame(data=results)
+
+            joint = sns.jointplot(data=data, x="theta_1", y="theta_2", kind="hist", weights=weights, bins=100)
+            # joint.plot_joint(sns.kdeplot, color="r", zorder=0, levels=6)
+            # joint.plot_marginals(sns.rugplot, color="r", height=-.15, clip_on=False)
+            joint._figure.savefig("bivariate.png", bbox_inches='tight')
+            # pdb.set_trace()
+        for i in range(n_dim):
             report.add(f"Results for theta_{i}")
 
-            # Calculate histogram data
-            bandwidth = 0.02
             # bins = int(
             #     (self.theta_range[i][1] - self.theta_range[i][0]) / bandwidth
             # )
-            bins = int(self.config["num_particles"] / 10)
             counts, bin_edges = np.histogram(
                 particles[:, i],
                 bins=bins,
@@ -526,7 +542,7 @@ class _Forward_Model:
             solver.run()
             return solver
         except RuntimeError:
-            print("WARNING: Forward model evaluation failed.")
+            # print("WARNING: Forward model evaluation failed.")
             return None
 
     def evaluate(self, sample: np.ndarray) -> np.ndarray:
@@ -568,35 +584,52 @@ class _Forward_ModelRpRd(_Forward_Model):
 
 class _Forward_ModelRC(_Forward_Model):
     def change_boundary_conditions(self, boundary_conditions, sample):
-        assert len(self.outlet_bc_ids) == 1, "only implemented for single RCR boundary condition"
-
         # only modify last boundary condition
+        assert len(self.outlet_bc_ids) == 1, "only implemented for single RCR boundary condition"
         bc_id = self.outlet_bc_ids[-1]
         bc_values = boundary_conditions[bc_id]["bc_values"]
+        
+        # select variation
+        # self.vary_r_ratio_c_ratio(bc_values, sample)
+        self.vary_rp_c(bc_values, sample)
+        # self.vary_rp_rd(bc_values, sample)
 
-        # # Rd / Rp
-        # r_ratio = np.exp(sample[0])
+    def vary_r_ratio_c_ratio(self, bc_values, sample):
+        # variable Rd / Rp
+        r_ratio = np.exp(sample[0])
 
-        # # Rd * C
-        # rc_ratio = np.exp(sample[1])
+        # variable Rd * C
+        rc_ratio = np.exp(sample[1])
 
-        # # Rp is const
-        # bc_values["Rd"] = r_ratio * bc_values["Rp"]
-        # bc_values["C"] = rc_ratio / bc_values["Rd"]
+        # const Rp
+        bc_values["Rd"] = r_ratio * bc_values["Rp"]
+        bc_values["C"] = rc_ratio / bc_values["Rd"]
 
-        bc_values["Rd"] = np.exp(sample[0])
+    def vary_rp_c(self, bc_values, sample):
+        # const Rp / Rd
+        r_ratio = 100.0
+        r0 = np.exp(sample[0]) / (r_ratio + 1.0)
+
+        # variable Rp, C
+        bc_values["Rp"] = r0
+        bc_values["Rd"] = r0 * r_ratio
         bc_values["C"] = np.exp(sample[1])
+
+    def vary_rp_rd(self, bc_values, sample):
+        # const C
+        bc_values["Rp"] = np.exp(sample[0])
+        bc_values["Rd"] = np.exp(sample[1])
 
     def evaluate(self, sample: np.ndarray) -> np.ndarray:
         """Get the pressure curve at the inlet"""
         solver = self.simulate(sample)
         if solver is None:
-            nt = self.base_config["simulation_parameters"]["number_of_time_pts_per_cardiac_cycle"]
-            # it = self.base_config["simulation_parameters"]["output_interval"]
-            n_time = nt# // it
-            return np.array([9e99] * n_time)
+            return np.array([9e99] * 2)
+        
+        p_inlet = solver.get_single_result(self.inlet_dof_name)
 
-        return solver.get_single_result(self.inlet_dof_name)
+        # return p_inlet
+        return np.array([p_inlet.max(), p_inlet.min()])
 
 
 class _SMCRunner:

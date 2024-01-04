@@ -19,6 +19,8 @@ ax2 = ax1.twinx()
 ax1.plot(res["time"], res["flow_in"], "r-")
 ax2.plot(res["time"], res["pressure_in"], "b-")
 
-print(res["pressure_in"].to_list())
+p = res["pressure_in"].to_list()
+print(p)
+print([np.max(p), np.min(p)])
 
 plt.show()

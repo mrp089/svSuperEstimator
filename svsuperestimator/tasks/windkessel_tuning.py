@@ -13,6 +13,8 @@ import numpy as np
 import orjson
 import pandas as pd
 import particles
+import seaborn as sns
+import matplotlib.pyplot as plt
 import pysvzerod as svzerodplus
 from particles import distributions as dists
 from particles import smc_samplers as ssp
@@ -297,18 +299,8 @@ class WindkesselTuning(Task):
         n_dim = particles.shape[1]
         if n_dim == 2:
             report.add(f"Add bivariate results")
+            joint_plot2(particles[:, 0], particles[:, 1], weights, "bivariate.png")
             
-            import seaborn as sns
-            import matplotlib.pyplot as plt
-
-            results = {"theta_1": particles[:, 0], "theta_2": particles[:, 1]}
-            data = pd.DataFrame(data=results)
-
-            joint = sns.jointplot(data=data, x="theta_1", y="theta_2", kind="hist", weights=weights, bins=100)
-            # joint.plot_joint(sns.kdeplot, color="r", zorder=0, levels=6)
-            # joint.plot_marginals(sns.rugplot, color="r", height=-.15, clip_on=False)
-            joint._figure.savefig("bivariate.png", bbox_inches='tight')
-            # pdb.set_trace()
         for i in range(n_dim):
             report.add(f"Results for theta_{i}")
 
@@ -521,6 +513,17 @@ class _Forward_Model:
             for bc in self.outlet_bcs.values()
         ]
 
+        # Ratio to total values at each outlet
+        self._total_ratio = {}
+        for val in ["C", "Rp", "Rd"]:
+            total = 0.0
+            for bc in self.outlet_bcs.values():
+                total += bc["bc_values"][val]
+            self._total_ratio[val] = [
+                bc["bc_values"][val] / total
+                for bc in self.outlet_bcs.values()
+            ]
+
     def to_file(self, filename: str):
         """Write configuration to 0D input file"""
         self.based_zerod.to_file(filename)
@@ -542,7 +545,6 @@ class _Forward_Model:
             solver.run()
             return solver
         except RuntimeError:
-            # print("WARNING: Forward model evaluation failed.")
             return None
 
     def evaluate(self, sample: np.ndarray) -> np.ndarray:
@@ -584,15 +586,35 @@ class _Forward_ModelRpRd(_Forward_Model):
 
 class _Forward_ModelRC(_Forward_Model):
     def change_boundary_conditions(self, boundary_conditions, sample):
-        # only modify last boundary condition
-        assert len(self.outlet_bc_ids) == 1, "only implemented for single RCR boundary condition"
-        bc_id = self.outlet_bc_ids[-1]
-        bc_values = boundary_conditions[bc_id]["bc_values"]
+        out_ids = range(len(self.outlet_bc_ids))
+        # out_ids = [4]
+        for i, val in enumerate(["Rd", "C"]):
+            for j in out_ids:
+                bc_values = boundary_conditions[self.outlet_bc_ids[j]]["bc_values"]
+                bc_values[val] = np.exp(sample[i]) * self._total_ratio[val][j]
+        # # only modify one boundary condition
+        # if len(self.outlet_bc_ids) == 1:
+        #     out_id = -1
+        # else:
+        #     out_id = 1
+        # bc_id = self.outlet_bc_ids[out_id]
+        # bc_values = boundary_conditions[bc_id]["bc_values"]
         
         # select variation
         # self.vary_r_ratio_c_ratio(bc_values, sample)
-        self.vary_rp_c(bc_values, sample)
-        # self.vary_rp_rd(bc_values, sample)
+        # self.vary_rp_c(bc_values, sample)
+        # self.vary_rd_c_0104_0001(bc_values, sample)
+        # self.vary_rp_c_0104_0001(bc_values, sample)
+
+        # r_ratio = 3163.0 / 256.0
+        # bc_values["Rd"] = np.exp(sample[0])
+        # bc_values["Rp"] = bc_values["Rd"] * r_ratio
+
+        # c_total = np.exp(sample[1])
+        # bc_values = boundary_conditions[bc_id]["bc_values"]
+        # for i, bc_id in enumerate(self.outlet_bc_ids):
+        #     bc_values = boundary_conditions[bc_id]["bc_values"]
+        #     bc_values["C"] = self._total_ratio["C"][i] * c_total
 
     def vary_r_ratio_c_ratio(self, bc_values, sample):
         # variable Rd / Rp
@@ -615,21 +637,45 @@ class _Forward_ModelRC(_Forward_Model):
         bc_values["Rd"] = r0 * r_ratio
         bc_values["C"] = np.exp(sample[1])
 
-    def vary_rp_rd(self, bc_values, sample):
-        # const C
-        bc_values["Rp"] = np.exp(sample[0])
-        bc_values["Rd"] = np.exp(sample[1])
+    # def vary_rd_c_0104_0001(self, bc_values, sample):
+    #     # for i, bc_id in enumerate(self.outlet_bc_ids):
+    #     #     bc_values = boundary_conditions[bc_id]["bc_values"]
+    #     #     bc_values["C"] = self._total_ratio["C"][i] * c_total
+    #     # from ground truth
+    #     r_ratio = 256.0 / 3163.0
+
+    #     # variable Rp, C
+    #     bc_values["Rd"] = np.exp(sample[0])
+    #     bc_values["Rp"] = bc_values["Rd"] * r_ratio
+    #     bc_values["C"] = np.exp(sample[1])
+
+    # def vary_rp_c_0104_0001(self, bc_values, sample):
+    #     # from ground truth
+    #     r_ratio = 3163.0 / 256.0
+
+    #     # variable Rp, C
+    #     bc_values["Rp"] = np.exp(sample[0])
+    #     bc_values["Rd"] = bc_values["Rp"] * r_ratio
+    #     bc_values["C"] = np.exp(sample[1])
 
     def evaluate(self, sample: np.ndarray) -> np.ndarray:
         """Get the pressure curve at the inlet"""
         solver = self.simulate(sample)
         if solver is None:
-            return np.array([9e99] * 2)
+            nt = self.base_config["simulation_parameters"]["number_of_time_pts_per_cardiac_cycle"]
+            return np.array([9e99] * nt)
         
         p_inlet = solver.get_single_result(self.inlet_dof_name)
+        # q_outlet = solver.get_single_result(self.outlet_dof_names[1])
+        
+        # tmax = self.base_config["boundary_conditions"][0]["bc_values"]["t"][-1]
+        # dt = tmax / nt
+        # dp_inlet = np.gradient(p_inlet, dt)
 
-        # return p_inlet
-        return np.array([p_inlet.max(), p_inlet.min()])
+        return p_inlet
+        # return np.array([p_inlet.max(), p_inlet.min()])
+        # return np.array([p_inlet.max(), p_inlet.min(), dp_inlet.max()])
+        # return np.array([p_inlet.max(), p_inlet.min(), np.mean(q_outlet)])
 
 
 class _SMCRunner:
@@ -725,6 +771,30 @@ class _SMCRunner:
             all_logpost.append(logpost)
 
         return all_particles, all_weights, all_logpost
+    
+def joint_plot(x, y, weights, output_path):
+    g = sns.JointGrid()
+
+    cmap = plt.get_cmap('BuGn')
+    color = np.array(cmap(1000))[:-1]
+
+    # Create a hexbin plot with weights
+    n_grid = 50
+    g.ax_joint.hexbin(x, y, C=weights, gridsize=n_grid, linewidths=0.5, edgecolors='0.3', reduce_C_function=np.sum, cmap='BuGn')
+    g.ax_marg_x.hist(x=x, weights=weights, bins=n_grid, color=color, alpha=0.5)
+    g.ax_marg_y.hist(x=y, weights=weights, bins=n_grid, orientation="horizontal", color=color, alpha=0.5)
+
+    g._figure.savefig(output_path, dpi=400)
+    # g._figure.close()
+
+def joint_plot2(x, y, weights, output_path):
+    results = {"theta_1": x, "theta_2": y}
+    data = pd.DataFrame(data=results)
+
+    joint = sns.jointplot(data=data, x="theta_1", y="theta_2", kind="hist", weights=weights, bins=100)
+    # joint.plot_joint(sns.kdeplot, color="r", zorder=0, levels=6)
+    # joint.plot_marginals(sns.rugplot, color="r", height=-.15, clip_on=False)
+    joint._figure.savefig(output_path, bbox_inches='tight')
 
 class ForkedPdb(pdb.Pdb):
     """A Pdb subclass that may be used

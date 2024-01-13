@@ -299,7 +299,7 @@ class WindkesselTuning(Task):
         n_dim = particles.shape[1]
         if n_dim == 2:
             report.add(f"Add bivariate results")
-            joint_plot2(particles[:, 0], particles[:, 1], weights, "bivariate.png")
+            joint_plot2(particles[:, 0], particles[:, 1], weights, self.config["theta_range"], "bivariate.png")
             
         for i in range(n_dim):
             report.add(f"Results for theta_{i}")
@@ -787,11 +787,13 @@ def joint_plot(x, y, weights, output_path):
     g._figure.savefig(output_path, dpi=400)
     # g._figure.close()
 
-def joint_plot2(x, y, weights, output_path):
+def joint_plot2(x, y, weights, lims, output_path):
     results = {"theta_1": x, "theta_2": y}
     data = pd.DataFrame(data=results)
 
     joint = sns.jointplot(data=data, x="theta_1", y="theta_2", kind="hist", weights=weights, bins=100)
+    joint.ax_joint.set_xlim(lims[0])
+    joint.ax_joint.set_ylim(lims[1])
     # joint.plot_joint(sns.kdeplot, color="r", zorder=0, levels=6)
     # joint.plot_marginals(sns.rugplot, color="r", height=-.15, clip_on=False)
     joint._figure.savefig(output_path, bbox_inches='tight')

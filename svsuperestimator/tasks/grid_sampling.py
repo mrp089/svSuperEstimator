@@ -23,7 +23,7 @@ from .. import reader, visualizer
 from ..reader import utils as readutils
 from . import plotutils, statutils, taskutils
 from .task import Task
-from .windkessel_tuning import WindkesselTuning, _Forward_Model
+from .windkessel_tuning import WindkesselTuning, _Forward_Model, _Forward_ModelRC, _Forward_ModelRpRd, joint_plot, joint_plot2
 
 
 class GridSampling(WindkesselTuning):
@@ -36,6 +36,8 @@ class GridSampling(WindkesselTuning):
     def core_run(self) -> None:
         """Core routine of the task."""
 
+        self.theta_range = self.config["theta_range"]
+        
         # Load the 0D simulation configuration
         zerod_config_handler = reader.SvZeroDSolverInputHandler.from_file(
             self.config["zerod_config_file"]
@@ -60,7 +62,13 @@ class GridSampling(WindkesselTuning):
         self.database["theta_obs"] = theta_obs.tolist()
 
         # Setup forward model
-        self.forward_model = _Forward_Model(zerod_config_handler)
+        model = self.config["forward_model"]
+        if model == "RC":
+            self.forward_model = _Forward_ModelRC(zerod_config_handler)
+        elif model == "RpRd":
+            self.forward_model = _Forward_ModelRpRd(zerod_config_handler)
+        else:
+            raise NotImplementedError("Unknown forward model " + model)
 
         # Determine target observations through one forward evaluation
         y_obs = np.array(self.config["y_obs"])
@@ -79,9 +87,9 @@ class GridSampling(WindkesselTuning):
             y_obs=y_obs,
             len_theta=len(theta_obs),
             likelihood_std_vector=std_vector,
-            prior_bounds=self._THETA_RANGE,
+            prior_bounds=self.config["theta_range"],
             num_procs=self.config["num_procs"],
-            num_samples=self.config["num_samples"],
+            num_samples=int(np.sqrt(self.config["num_particles"])),
             console=self.console,
         )
 
@@ -97,6 +105,14 @@ class GridSampling(WindkesselTuning):
             "%m/%d/%Y, %H:%M:%S"
         )
 
+    def generate_report(self) -> visualizer.Report:
+        particles = np.array(self.database["particles"][-1])
+        weights = np.array(self.database["weights"][-1])
+
+        # Create distribition plots for all boundary conditions
+        n_dim = particles.shape[1]
+        if n_dim == 2:
+            joint_plot2(particles[:, 0], particles[:, 1], weights, self.config["theta_range"], "bivariate.png")
 
 class _GridRunner:
     def __init__(
@@ -144,7 +160,7 @@ class _GridRunner:
     def run(self) -> tuple[list, list, list]:
         ranges = [
             np.linspace(
-                self.prior_bounds[0], self.prior_bounds[1], self.num_samples
+                self.prior_bounds[i][0], self.prior_bounds[i][1], self.num_samples
             )
             for i in range(self.len_theta)
         ]

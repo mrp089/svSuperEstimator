@@ -701,9 +701,8 @@
         "density": 1.06,
         "model_name": "0104_0001",
         "number_of_cardiac_cycles": 5,
-        "number_of_time_pts_per_cardiac_cycle": 968,
+        "number_of_time_pts_per_cardiac_cycle": 51,
         "output_all_cycles": false,
-        "output_derivative": true,
         "viscosity": 0.04
     },
     "vessels": [

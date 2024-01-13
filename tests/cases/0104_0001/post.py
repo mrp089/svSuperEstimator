@@ -24,9 +24,9 @@ ax2.plot(res["time"][inlet], res["pressure_in"][inlet], "b-")
 outlet = res["name"] == "branch4_seg2"
 
 p = res["pressure_in"][inlet].to_list()
-dp = res["d_pressure_in"][inlet].to_list()
+#dp = res["d_pressure_in"][inlet].to_list()
 q = res["flow_out"][outlet].to_list()
 print(p)
-print([np.max(p), np.min(p), np.max(dp)])
+#print([np.max(p), np.min(p), np.max(dp)])
 
 plt.show()

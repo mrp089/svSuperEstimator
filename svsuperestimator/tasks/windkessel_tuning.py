@@ -299,7 +299,7 @@ class WindkesselTuning(Task):
         n_dim = particles.shape[1]
         if n_dim == 2:
             report.add(f"Add bivariate results")
-            joint_plot2(particles[:, 0], particles[:, 1], weights, self.config["theta_range"], "bivariate.png")
+            joint_plot(particles[:, 0], particles[:, 1], weights, self.config["theta_range"], "bivariate.png")
             
         for i in range(n_dim):
             report.add(f"Results for theta_{i}")
@@ -662,20 +662,22 @@ class _Forward_ModelRC(_Forward_Model):
         """Get the pressure curve at the inlet"""
         solver = self.simulate(sample)
         if solver is None:
-            nt = self.base_config["simulation_parameters"]["number_of_time_pts_per_cardiac_cycle"]
-            return np.array([9e99] * nt)
+            return np.array([9e99] * 4)
         
         p_inlet = solver.get_single_result(self.inlet_dof_name)
         # q_outlet = solver.get_single_result(self.outlet_dof_names[1])
         
+        nt = self.base_config["simulation_parameters"]["number_of_time_pts_per_cardiac_cycle"]
         # tmax = self.base_config["boundary_conditions"][0]["bc_values"]["t"][-1]
         # dt = tmax / nt
         # dp_inlet = np.gradient(p_inlet, dt)
 
-        return p_inlet
+        # return p_inlet
         # return np.array([p_inlet.max(), p_inlet.min()])
         # return np.array([p_inlet.max(), p_inlet.min(), dp_inlet.max()])
         # return np.array([p_inlet.max(), p_inlet.min(), np.mean(q_outlet)])
+        # return np.array([p_inlet[0], p_inlet[5], p_inlet[10]])
+        return np.array([p_inlet.max() / p_inlet.mean(), p_inlet.min() / p_inlet.mean(), p_inlet.argmax() / nt, p_inlet.argmin() / nt])
 
 
 class _SMCRunner:
@@ -772,20 +774,33 @@ class _SMCRunner:
 
         return all_particles, all_weights, all_logpost
     
-def joint_plot(x, y, weights, output_path):
+def joint_plot(x, y, weights, lims, output_path):
+
     g = sns.JointGrid()
 
     cmap = plt.get_cmap('BuGn')
     color = np.array(cmap(1000))[:-1]
 
     # Create a hexbin plot with weights
-    n_grid = 50
-    g.ax_joint.hexbin(x, y, C=weights, gridsize=n_grid, linewidths=0.5, edgecolors='0.3', reduce_C_function=np.sum, cmap='BuGn')
-    g.ax_marg_x.hist(x=x, weights=weights, bins=n_grid, color=color, alpha=0.5)
-    g.ax_marg_y.hist(x=y, weights=weights, bins=n_grid, orientation="horizontal", color=color, alpha=0.5)
+    sns.kdeplot(
+        x=x, 
+        y=y,
+        weights=weights,
+        color='r',
+        fill=True,
+        cmap="BuGn",
+        ax=g.ax_joint,
+        thresh=0.01
+    )
+    
+    g.ax_marg_x.hist(x=x, weights=weights, color=color, alpha=0.5)
+    g.ax_marg_y.hist(x=y, weights=weights, orientation="horizontal", color=color, alpha=0.5)
 
-    g._figure.savefig(output_path, dpi=400)
-    # g._figure.close()
+    g.ax_joint.set_xlim(lims[0])
+    g.ax_joint.set_ylim(lims[1])
+
+    plt.savefig(output_path)
+    plt.close()
 
 def joint_plot2(x, y, weights, lims, output_path):
     results = {"theta_1": x, "theta_2": y}

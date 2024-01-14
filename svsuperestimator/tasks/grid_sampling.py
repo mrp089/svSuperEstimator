@@ -112,7 +112,7 @@ class GridSampling(WindkesselTuning):
         # Create distribition plots for all boundary conditions
         n_dim = particles.shape[1]
         if n_dim == 2:
-            joint_plot2(particles[:, 0], particles[:, 1], weights, self.config["theta_range"], "bivariate.png")
+            joint_plot(particles[:, 0], particles[:, 1], weights, self.config["theta_range"], "bivariate.png")
 
 class _GridRunner:
     def __init__(

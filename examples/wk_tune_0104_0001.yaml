@@ -5,7 +5,7 @@ global:
 tasks:
   windkessel_tuning:
     name: tmp_windkessel29
-    zerod_config_file: ../tests/cases/0104_0001/0104_0001_geometric_fast.json
+    zerod_config_file: ../tests/cases/0104_0001/0104_0001_calibrated_orig.json
     forward_model: RC
 
     # # RCR1: Rd, C
@@ -26,7 +26,7 @@ tasks:
 
     # Total: Rp, C
     theta_obs: [-6.90777527918214, 11.486981820165282]
-    theta_range: [[10.5, 12.5], [-7.5, -4.5]]
+    theta_range: [[11.0, 14.0], [-8.0, -4.0]]
 
     # # max, min pressure
     # y_obs: [149276.48229556938, 94661.81820697615]
@@ -52,7 +52,7 @@ tasks:
     # pressure, max/mean min/mean t_max/nt t_min/nt
     y_obs: [1.267346159337098, 0.7962525939933489, 0.09803921568627451, 0.9019607843137255]
 
-    num_particles: 1000
+    num_particles: 10000
     resampling_threshold: 1
     noise_factor: 0.1
     num_rejuvenation_steps: 10

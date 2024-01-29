@@ -587,76 +587,10 @@ class _Forward_ModelRpRd(_Forward_Model):
 class _Forward_ModelRC(_Forward_Model):
     def change_boundary_conditions(self, boundary_conditions, sample):
         out_ids = range(len(self.outlet_bc_ids))
-        # out_ids = [4]
         for i, val in enumerate(["Rd", "C"]):
             for j in out_ids:
                 bc_values = boundary_conditions[self.outlet_bc_ids[j]]["bc_values"]
                 bc_values[val] = np.exp(sample[i]) * self._total_ratio[val][j]
-        # # only modify one boundary condition
-        # if len(self.outlet_bc_ids) == 1:
-        #     out_id = -1
-        # else:
-        #     out_id = 1
-        # bc_id = self.outlet_bc_ids[out_id]
-        # bc_values = boundary_conditions[bc_id]["bc_values"]
-        
-        # select variation
-        # self.vary_r_ratio_c_ratio(bc_values, sample)
-        # self.vary_rp_c(bc_values, sample)
-        # self.vary_rd_c_0104_0001(bc_values, sample)
-        # self.vary_rp_c_0104_0001(bc_values, sample)
-
-        # r_ratio = 3163.0 / 256.0
-        # bc_values["Rd"] = np.exp(sample[0])
-        # bc_values["Rp"] = bc_values["Rd"] * r_ratio
-
-        # c_total = np.exp(sample[1])
-        # bc_values = boundary_conditions[bc_id]["bc_values"]
-        # for i, bc_id in enumerate(self.outlet_bc_ids):
-        #     bc_values = boundary_conditions[bc_id]["bc_values"]
-        #     bc_values["C"] = self._total_ratio["C"][i] * c_total
-
-    def vary_r_ratio_c_ratio(self, bc_values, sample):
-        # variable Rd / Rp
-        r_ratio = np.exp(sample[0])
-
-        # variable Rd * C
-        rc_ratio = np.exp(sample[1])
-
-        # const Rp
-        bc_values["Rd"] = r_ratio * bc_values["Rp"]
-        bc_values["C"] = rc_ratio / bc_values["Rd"]
-
-    def vary_rp_c(self, bc_values, sample):
-        # const Rp / Rd
-        r_ratio = 100.0
-        r0 = np.exp(sample[0]) / (r_ratio + 1.0)
-
-        # variable Rp, C
-        bc_values["Rp"] = r0
-        bc_values["Rd"] = r0 * r_ratio
-        bc_values["C"] = np.exp(sample[1])
-
-    # def vary_rd_c_0104_0001(self, bc_values, sample):
-    #     # for i, bc_id in enumerate(self.outlet_bc_ids):
-    #     #     bc_values = boundary_conditions[bc_id]["bc_values"]
-    #     #     bc_values["C"] = self._total_ratio["C"][i] * c_total
-    #     # from ground truth
-    #     r_ratio = 256.0 / 3163.0
-
-    #     # variable Rp, C
-    #     bc_values["Rd"] = np.exp(sample[0])
-    #     bc_values["Rp"] = bc_values["Rd"] * r_ratio
-    #     bc_values["C"] = np.exp(sample[1])
-
-    # def vary_rp_c_0104_0001(self, bc_values, sample):
-    #     # from ground truth
-    #     r_ratio = 3163.0 / 256.0
-
-    #     # variable Rp, C
-    #     bc_values["Rp"] = np.exp(sample[0])
-    #     bc_values["Rd"] = bc_values["Rp"] * r_ratio
-    #     bc_values["C"] = np.exp(sample[1])
 
     def evaluate(self, sample: np.ndarray) -> np.ndarray:
         """Get the pressure curve at the inlet"""
@@ -664,19 +598,9 @@ class _Forward_ModelRC(_Forward_Model):
         if solver is None:
             return np.array([9e99] * 4)
         
-        p_inlet = solver.get_single_result(self.inlet_dof_name)
-        # q_outlet = solver.get_single_result(self.outlet_dof_names[1])
-        
+        p_inlet = solver.get_single_result(self.inlet_dof_name)        
         nt = self.base_config["simulation_parameters"]["number_of_time_pts_per_cardiac_cycle"]
-        # tmax = self.base_config["boundary_conditions"][0]["bc_values"]["t"][-1]
-        # dt = tmax / nt
-        # dp_inlet = np.gradient(p_inlet, dt)
 
-        # return p_inlet
-        # return np.array([p_inlet.max(), p_inlet.min()])
-        # return np.array([p_inlet.max(), p_inlet.min(), dp_inlet.max()])
-        # return np.array([p_inlet.max(), p_inlet.min(), np.mean(q_outlet)])
-        # return np.array([p_inlet[0], p_inlet[5], p_inlet[10]])
         return np.array([p_inlet.max() / p_inlet.mean(), p_inlet.min() / p_inlet.mean(), p_inlet.argmax() / nt, p_inlet.argmin() / nt])
 
 

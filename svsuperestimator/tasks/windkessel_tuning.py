@@ -85,11 +85,15 @@ class WindkesselTuning(Task):
             self.forward_model = _Forward_ModelRC(zerod_config_handler)
         elif model == "RpRd":
             self.forward_model = _Forward_ModelRpRd(zerod_config_handler)
+        elif model == "aorta":
+            self.forward_model = _Forward_ModelRpRd_aorta(zerod_config_handler)
         else:
             raise NotImplementedError("Unknown forward model " + model)
 
         # Determine target observations through one forward evaluation
         y_obs = np.array(self.config["y_obs"])
+        if y_obs.size == 0:
+            y_obs = self.forward_model.evaluate(None)
         self.log("Setting target observation to:", y_obs)
         self.database["y_obs"] = y_obs.tolist()
 
@@ -497,6 +501,9 @@ class _Forward_Model:
         self.inlet_dof_name = [
             f"pressure:{n}" for n in bc_node_names if "INFLOW" in n
         ][0]
+        self.inlet_dof_name_q = [
+            f"flow:{n}" for n in bc_node_names if "INFLOW" in n
+        ][0]
         self.outlet_dof_names = [
             f"flow:{n}" for n in bc_node_names if "INFLOW" not in n
         ]
@@ -537,7 +544,8 @@ class _Forward_Model:
         config = self.base_config.copy()
 
         # Change boundary conditions (set in derived class)
-        self.change_boundary_conditions(config["boundary_conditions"], sample)
+        if sample is not None:
+            self.change_boundary_conditions(config["boundary_conditions"], sample)
 
         # Run simulation
         try:
@@ -582,6 +590,20 @@ class _Forward_ModelRpRd(_Forward_Model):
         ]
 
         return np.array([p_inlet.min(), p_inlet.max(), *q_outlet_mean])
+
+
+class _Forward_ModelRpRd_aorta(_Forward_ModelRpRd):
+    def change_boundary_conditions(self, boundary_conditions, sample):
+        # Set new total resistance at each outlet
+        for i, bc_id in enumerate(self.outlet_bc_ids):
+            if i == 2:
+                ki = np.exp(sample[0])
+            else:
+                ki = np.exp(sample[1])
+            bc_values = boundary_conditions[bc_id]["bc_values"]
+            bc_values["Rp"] = ki / (1.0 + self._distal_to_proximal[i])
+            bc_values["Rd"] = ki - bc_values["Rp"]
+            bc_values["C"] = self._time_constants[i] / bc_values["Rd"]
 
 
 class _Forward_ModelRC(_Forward_Model):

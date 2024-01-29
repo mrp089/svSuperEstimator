@@ -6,16 +6,16 @@ tasks:
   grid_sampling:
     name: tmp_windkessel29
     zerod_config_file: ../tests/cases/0104_0001/0104_0001_calibrated_orig.json
-    forward_model: RC
+    forward_model: aorta
 
     # Total: Rp, C
-    theta_obs: [-6.90777527918214, 11.486981820165282]
-    theta_range: [[11.0, 14.0], [-8.0, -4.0]]
+    theta_obs: [1.0, 1.0]
+    theta_range: [[2.0, 8.0], [3.0, 6.0]]
 
-    # pressure, max/mean min/mean t_max/nt t_min/nt
-    y_obs: [1.267346159337098, 0.7962525939933489, 0.09803921568627451, 0.9019607843137255]
+    # Get targets from forward evaluation (ground truth)
+    y_obs: [9.32312464e+04, 1.77669235e+05, 7.44259475e+00, 3.38493067e+01, 6.52259072e+00, 2.25376025e+00, 6.43813231e+00]
 
-    num_particles: 1000
+    num_particles: 100
     resampling_threshold: 1
-    noise_factor: 0.2
+    noise_factor: 0.3
     num_rejuvenation_steps: 10

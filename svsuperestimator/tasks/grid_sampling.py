@@ -23,7 +23,7 @@ from .. import reader, visualizer
 from ..reader import utils as readutils
 from . import plotutils, statutils, taskutils
 from .task import Task
-from .windkessel_tuning import WindkesselTuning, _Forward_Model, _Forward_ModelRC, _Forward_ModelRpRd, joint_plot, joint_plot2
+from .windkessel_tuning import WindkesselTuning, _Forward_Model, _Forward_ModelRC, _Forward_ModelRpRd, _Forward_ModelRpRd_aorta, joint_plot, joint_plot2
 
 
 class GridSampling(WindkesselTuning):
@@ -67,11 +67,15 @@ class GridSampling(WindkesselTuning):
             self.forward_model = _Forward_ModelRC(zerod_config_handler)
         elif model == "RpRd":
             self.forward_model = _Forward_ModelRpRd(zerod_config_handler)
+        elif model == "aorta":
+            self.forward_model = _Forward_ModelRpRd_aorta(zerod_config_handler)
         else:
             raise NotImplementedError("Unknown forward model " + model)
 
         # Determine target observations through one forward evaluation
         y_obs = np.array(self.config["y_obs"])
+        if y_obs.size == 0:
+            y_obs = self.forward_model.evaluate(None)
         self.log("Setting target observation to:", y_obs)
         self.database["y_obs"] = y_obs.tolist()
 
